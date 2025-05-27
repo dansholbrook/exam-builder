@@ -419,16 +419,22 @@ RULES:
 - Make subquestions that require actual calculation
 - Return ONLY the JSON, nothing else"""
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt.prompt}
-            ],
-            temperature=0.7,
-            max_tokens=2000
-        )
+   try:
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt.prompt}
+        ],
+        temperature=0.7,
+        max_tokens=2000
+    )
+
+    raw = response.choices[0].message.content.strip()
+    
+    # Handle encoding issues by cleaning the response
+    raw = raw.encode('utf-8', errors='ignore').decode('utf-8')
+
 
         raw = response.choices[0].message.content.strip()
         
