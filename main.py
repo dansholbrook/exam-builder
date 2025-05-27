@@ -352,26 +352,14 @@ def build_professional_workbook(questions: List[Question], filename="Professiona
     
     wb.save(filename)
 
-@app.post("/generate")
-async def generate_exam(data: QuestionList):
-    questions = data.questions
-    exam_title = data.exam_title or "Professional Exam"  # CHANGED: Use custom title from frontend
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-    
-    build_professional_workbook(questions, filename=tmp.name, exam_title=exam_title)
-    return FileResponse(
-        tmp.name, 
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-        filename=f"{exam_title.replace(' ', '_')}.xlsx"  # CHANGED: Use custom filename
-    )
-
 @app.post("/ai-generate-question")
 async def ai_generate_question(prompt: PromptRequest):
-    if not prompt.prompt:
-        raise HTTPException(status_code=400, detail="Prompt is required")
+    try:
+        if not prompt.prompt:
+            raise HTTPException(status_code=400, detail="Prompt is required")
 
-    # Enhanced system prompt for complex question generation
-    system_prompt = """You are an AI that generates sophisticated exam questions with data tables. 
+        # Enhanced system prompt for complex question generation
+        system_prompt = """You are an AI that generates sophisticated exam questions with data tables. 
 
 IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, no extra text.
 
@@ -391,83 +379,94 @@ For BULK requests (multiple questions), return a JSON ARRAY like this:
    "subquestions": [
      {"part": "A", "question": "What was the GDP growth from 2020 to 2021?", "answer": "8.9", "tolerance": 0.02}
    ]
-  },
-  {
-    "type": "data_table", 
-    "question": "Consider the inflation data:",
-    "data_table": {
-      "headers": ["Year", "Inflation Rate (%)"],
-      "rows": [[2020, 1.2], [2021, 4.7], [2022, 8.0]]
-    },
-    "subquestions": [
-      {"part": "A", "question": "What was the average inflation rate?", "answer": "4.6", "tolerance": 0.1}
-    ]
- }
+  }
 ]
 
 - Make subquestions that require actual calculation
 - Return ONLY the JSON, nothing else"""
 
-    try:
-        # Clean the input prompt first to remove problematic characters
-        clean_prompt = prompt.prompt.encode('ascii', errors='ignore').decode('ascii')
-        
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": clean_prompt}
-            ],
-            temperature=0.7,
-            max_tokens=2000
-        )
+        try:
+            # Clean the input prompt first to remove problematic characters
+            clean_prompt = prompt.prompt.encode('ascii', errors='ignore').decode('ascii')
+            print(f"DEBUG: Original prompt length: {len(prompt.prompt)}")
+            print(f"DEBUG: Cleaned prompt length: {len(clean_prompt)}")
+            
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": clean_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=2000
+            )
+            print("DEBUG: OpenAI call successful")
 
-        raw = response.choices[0].message.content.strip()
-        
-        # Handle encoding issues by cleaning the response
-        raw = raw.encode('utf-8', errors='ignore').decode('utf-8')
-        
-        # More aggressive cleaning of the response
-        # Remove markdown code blocks
-        if "```json" in raw:
-            parts = raw.split("```")
-            if len(parts) >= 3:
-                raw = parts[1].strip()
-                if raw.startswith("json"):
-                    raw = raw[4:].strip()
+            raw = response.choices[0].message.content.strip()
+            print(f"DEBUG: Raw response length: {len(raw)}")
+            
+            # Handle encoding issues by cleaning the response
+            raw = raw.encode('utf-8', errors='ignore').decode('utf-8')
+            
+            # More aggressive cleaning of the response
+            # Remove markdown code blocks
+            if "```json" in raw:
+                parts = raw.split("```")
+                if len(parts) >= 3:
+                    raw = parts[1].strip()
+                    if raw.startswith("json"):
+                        raw = raw[4:].strip()
 
-        # Remove any leading/trailing text that might not be JSON
-        # Find the first { or [ and last } or ]
-        start_idx = -1
-        end_idx = -1
-        
-        for i, char in enumerate(raw):
-            if char in ['{', '[']:
-                start_idx = i
-                break
-        
-        for i in range(len(raw) - 1, -1, -1):
-            if raw[i] in ['}', ']']:
-                end_idx = i + 1
-                break
-        
-        if start_idx != -1 and end_idx != -1:
-            raw = raw[start_idx:end_idx]
-        
-        # Try to parse the JSON
-        parsed = json.loads(raw)
-        return parsed
+            # Remove any leading/trailing text that might not be JSON
+            # Find the first { or [ and last } or ]
+            start_idx = -1
+            end_idx = -1
+            
+            for i, char in enumerate(raw):
+                if char in ['{', '[']:
+                    start_idx = i
+                    break
+            
+            for i in range(len(raw) - 1, -1, -1):
+                if raw[i] in ['}', ']']:
+                    end_idx = i + 1
+                    break
+            
+            if start_idx != -1 and end_idx != -1:
+                raw = raw[start_idx:end_idx]
+            
+            print(f"DEBUG: Final cleaned JSON length: {len(raw)}")
+            
+            # Try to parse the JSON
+            parsed = json.loads(raw)
+            print("DEBUG: JSON parsing successful")
+            return parsed
 
-    except json.JSONDecodeError as e:
-        # If JSON parsing fails, provide more detailed error info
-        raise HTTPException(
-            status_code=500,
-            detail=f"AI returned invalid JSON. Error: {str(e)}. Raw response: {raw[:200]}..."
-        )
+        except json.JSONDecodeError as e:
+            print(f"DEBUG: JSON decode error: {str(e)}")
+            print(f"DEBUG: Raw response: {raw[:500]}...")
+            raise HTTPException(
+                status_code=500,
+                detail=f"AI returned invalid JSON. Error: {str(e)}"
+            )
+        except Exception as e:
+            print(f"DEBUG: Other error in inner try: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error in AI processing: {str(e)}"
+            )
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
+        print(f"DEBUG: Error in outer try: {str(e)}")
+        print(f"DEBUG: Error type: {type(e)}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error generating question: {str(e)}"
+            detail=f"Unexpected error: {str(e)}"
         )
 
 
