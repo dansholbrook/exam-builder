@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import tempfile
 import json
@@ -59,7 +60,7 @@ class Question(BaseModel):
 
 class QuestionList(BaseModel):
     questions: List[Question]
-    exam_title: Optional[str] = "Professional Exam"  # ADDED: Custom exam title
+    exam_title: Optional[str] = "Professional Exam"
 
 class PromptRequest(BaseModel):
     prompt: str
@@ -95,7 +96,7 @@ class ExcelLayoutEngine:
         self.answer_fill = PatternFill(start_color="FFFEE9", end_color="FFFEE9", fill_type="solid")
 
     def setup_sheets(self):
-        # Create Student sheet (student-facing) - CHANGED from "Final" to "Student"
+        # Create Student sheet (student-facing)
         self.final_sheet = self.wb.active
         self.final_sheet.title = "Student"
         
@@ -194,7 +195,7 @@ class ExcelLayoutEngine:
         sub_cell.fill = self.white_fill  # White background
         
         # Answer input cell (strategically positioned)
-        answer_col = 4  # Column D, like your manual exam
+        answer_col = 4  # Column D
         answer_cell_addr = f"{get_column_letter(answer_col)}{self.current_row + 1}"
         answer_cell = self.final_sheet.cell(row=self.current_row + 1, column=answer_col, value="")
         answer_cell.border = self.thin_border
@@ -274,7 +275,7 @@ class ExcelLayoutEngine:
             # Add to solution sheet
             self.solution_sheet.cell(row=grading_row, column=9, value=question_id)  # Column I
             
-            # Student answer (reference to Student sheet) - CHANGED from "Final!" to "Student!"
+            # Student answer (reference to Student sheet)
             student_formula = f"=Student!{cell_addr}"
             self.solution_sheet.cell(row=grading_row, column=10, value=student_formula)  # Column J
             
@@ -283,10 +284,10 @@ class ExcelLayoutEngine:
             
             # Grading formula (Column L)
             if tolerance and question_type == "numerical":
-                # Tolerance-based grading (like your manual exam!)
+                # Tolerance-based grading
                 grading_formula = f"=IF(ABS(VALUE(K{grading_row})-VALUE(J{grading_row}))<=({tolerance}*ABS(VALUE(K{grading_row}))),1,0)"
             elif question_type in ["truefalse", "multiplechoice", "dropdown"]:
-                # Convert both to text for exact comparison (handles number vs string issue)
+                # Convert both to text for exact comparison
                 grading_formula = f"=IF(TEXT(J{grading_row},\"@\")=TEXT(K{grading_row},\"@\"),1,0)"
             else:
                 # Default numerical comparison with VALUE conversion
@@ -317,12 +318,12 @@ class ExcelLayoutEngine:
             total_value_cell.border = self.thin_border
 
 def build_professional_workbook(questions: List[Question], filename="Professional_Exam.xlsx", exam_title="Professional Exam"):
-    """Build a professional, beautiful Excel workbook like the manual example"""
+    """Build a professional, beautiful Excel workbook"""
     wb = Workbook()
     layout = ExcelLayoutEngine(wb)
     layout.setup_sheets()
     
-    # Set custom title - ADDED: Use the exam_title parameter
+    # Set custom title
     title_cell = layout.final_sheet.cell(row=1, column=2)
     title_cell.value = exam_title
     title_cell.font = layout.title_font
@@ -358,13 +359,25 @@ def build_professional_workbook(questions: List[Question], filename="Professiona
     
     wb.save(filename)
 
+@app.post("/generate")
+async def generate_exam(data: QuestionList):
+    questions = data.questions
+    exam_title = data.exam_title or "Professional Exam"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+
+    build_professional_workbook(questions, filename=tmp.name, exam_title=exam_title)
+    return FileResponse(
+        tmp.name, 
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+        filename=f"{exam_title.replace(' ', '_')}.xlsx"
+    )
+
 @app.post("/ai-generate-question")
 async def ai_generate_question(prompt: PromptRequest):
     try:
         if not prompt.prompt:
             raise HTTPException(status_code=400, detail="Prompt is required")
 
-        # Enhanced system prompt for complex question generation - ASCII safe
         system_prompt = """You are an AI that generates sophisticated exam questions with data tables. 
 
 IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, no extra text.
@@ -391,117 +404,68 @@ For BULK requests (multiple questions), return a JSON ARRAY like this:
 - Make subquestions that require actual calculation
 - Return ONLY the JSON, nothing else"""
 
-        try:
-            # Clean the input prompt first to remove problematic characters
-            clean_prompt = prompt.prompt.encode('ascii', errors='ignore').decode('ascii')
-            
-            # Also clean the system prompt to be safe
-            clean_system_prompt = system_prompt.encode('ascii', errors='ignore').decode('ascii')
-            
-            print(f"DEBUG: Original prompt length: {len(prompt.prompt)}")
-            print(f"DEBUG: Cleaned prompt length: {len(clean_prompt)}")
-            print(f"DEBUG: System prompt length: {len(clean_system_prompt)}")
-            
-            # Check for any remaining non-ASCII characters
-            try:
-                clean_prompt.encode('ascii')
-                clean_system_prompt.encode('ascii')
-                print("DEBUG: All prompts are ASCII-safe")
-            except UnicodeEncodeError as e:
-                print(f"DEBUG: Still has non-ASCII chars: {e}")
-            
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": clean_system_prompt},
-                    {"role": "user", "content": clean_prompt}
-                ],
-                temperature=0.7,
-                max_tokens=2000
-            )
-            print("DEBUG: OpenAI call successful")
+        # Clean the input prompt first to remove problematic characters
+        clean_prompt = prompt.prompt.encode('ascii', errors='ignore').decode('ascii')
+        clean_system_prompt = system_prompt.encode('ascii', errors='ignore').decode('ascii')
+        
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": clean_system_prompt},
+                {"role": "user", "content": clean_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=2000
+        )
 
-            raw = response.choices[0].message.content.strip()
-            print(f"DEBUG: Raw response length: {len(raw)}")
-            
-            # Handle encoding issues by cleaning the response
-            raw = raw.encode('utf-8', errors='ignore').decode('utf-8')
-            
-            # More aggressive cleaning of the response
-            # Remove markdown code blocks
-            if "```json" in raw:
-                parts = raw.split("```")
-                if len(parts) >= 3:
-                    raw = parts[1].strip()
-                    if raw.startswith("json"):
-                        raw = raw[4:].strip()
+        raw = response.choices[0].message.content.strip()
+        
+        # Handle encoding issues by cleaning the response
+        raw = raw.encode('utf-8', errors='ignore').decode('utf-8')
+        
+        # More aggressive cleaning of the response
+        # Remove markdown code blocks
+        if "```json" in raw:
+            parts = raw.split("```")
+            if len(parts) >= 3:
+                raw = parts[1].strip()
+                if raw.startswith("json"):
+                    raw = raw[4:].strip()
 
-            # Remove any leading/trailing text that might not be JSON
-            # Find the first { or [ and last } or ]
-            start_idx = -1
-            end_idx = -1
-            
-            for i, char in enumerate(raw):
-                if char in ['{', '[']:
-                    start_idx = i
-                    break
-            
-            for i in range(len(raw) - 1, -1, -1):
-                if raw[i] in ['}', ']']:
-                    end_idx = i + 1
-                    break
-            
-            if start_idx != -1 and end_idx != -1:
-                raw = raw[start_idx:end_idx]
-            
-            print(f"DEBUG: Final cleaned JSON length: {len(raw)}")
-            
-            # Try to parse the JSON
-            parsed = json.loads(raw)
-            print("DEBUG: JSON parsing successful")
-            return parsed
+        # Remove any leading/trailing text that might not be JSON
+        # Find the first { or [ and last } or ]
+        start_idx = -1
+        end_idx = -1
+        
+        for i, char in enumerate(raw):
+            if char in ['{', '[']:
+                start_idx = i
+                break
+        
+        for i in range(len(raw) - 1, -1, -1):
+            if raw[i] in ['}', ']']:
+                end_idx = i + 1
+                break
+        
+        if start_idx != -1 and end_idx != -1:
+            raw = raw[start_idx:end_idx]
+        
+        # Try to parse the JSON
+        parsed = json.loads(raw)
+        return parsed
 
-        except json.JSONDecodeError as e:
-            print(f"DEBUG: JSON decode error: {str(e)}")
-            print(f"DEBUG: Raw response: {raw[:500]}...")
-            raise HTTPException(
-                status_code=500,
-                detail=f"AI returned invalid JSON. Error: {str(e)}"
-            )
-        except Exception as e:
-            print(f"DEBUG: Other error in inner try: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error in AI processing: {str(e)}"
-            )
-            
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
-    except Exception as e:
-        print(f"DEBUG: Error in outer try: {str(e)}")
-        print(f"DEBUG: Error type: {type(e)}")
-        import traceback
-        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+    except json.JSONDecodeError as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Unexpected error: {str(e)}"
+            detail=f"AI returned invalid JSON. Error: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating question: {str(e)}"
         )
 
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-@app.post("/generate")
-async def generate_exam(data: QuestionList):
-    questions = data.questions
-    exam_title = data.exam_title or "Professional Exam"
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-
-    build_professional_workbook(questions, filename=tmp.name, exam_title=exam_title)
-    return FileResponse(
-        tmp.name, 
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-        filename=f"{exam_title.replace(' ', '_')}.xlsx"
-    )
