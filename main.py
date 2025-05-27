@@ -391,17 +391,6 @@ For BULK requests (multiple questions), return a JSON ARRAY like this:
     "subquestions": [
       {"part": "A", "question": "What was the GDP growth from 2020 to 2021?", "answer": "8.9", "tolerance": 0.02}
     ]
-  },
-  {
-    "type": "data_table", 
-    "question": "Consider the inflation data:",
-    "data_table": {
-      "headers": ["Year", "Inflation Rate (%)"],
-      "rows": [[2020, 1.2], [2021, 4.7], [2022, 8.0]]
-    },
-    "subquestions": [
-      {"part": "A", "question": "What was the average inflation rate?", "answer": "4.6", "tolerance": 0.1}
-    ]
   }
 ]
 
@@ -419,24 +408,21 @@ RULES:
 - Make subquestions that require actual calculation
 - Return ONLY the JSON, nothing else"""
 
-try:
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt.prompt}
-        ],
-        temperature=0.7,
-        max_tokens=2000
-    )
-
-    raw = response.choices[0].message.content.strip()
-    
-    # Handle encoding issues by cleaning the response
-    raw = raw.encode('utf-8', errors='ignore').decode('utf-8')
-
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt.prompt}
+            ],
+            temperature=0.7,
+            max_tokens=2000
+        )
 
         raw = response.choices[0].message.content.strip()
+        
+        # Handle encoding issues by cleaning the response
+        raw = raw.encode('utf-8', errors='ignore').decode('utf-8')
         
         # More aggressive cleaning of the response
         # Remove markdown code blocks
@@ -447,24 +433,6 @@ try:
             parts = raw.split("```")
             if len(parts) >= 3:
                 raw = parts[1].strip()
-        
-        # Remove any leading/trailing text that might not be JSON
-        # Find the first { or [ and last } or ]
-        start_idx = -1
-        end_idx = -1
-        
-        for i, char in enumerate(raw):
-            if char in ['{', '[']:
-                start_idx = i
-                break
-        
-        for i in range(len(raw) - 1, -1, -1):
-            if raw[i] in ['}', ']']:
-                end_idx = i + 1
-                break
-        
-        if start_idx != -1 and end_idx != -1:
-            raw = raw[start_idx:end_idx]
         
         # Try to parse the JSON
         parsed = json.loads(raw)
