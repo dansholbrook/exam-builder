@@ -419,7 +419,7 @@ RULES:
 - Make subquestions that require actual calculation
 - Return ONLY the JSON, nothing else"""
 
-   try:
+try:
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
