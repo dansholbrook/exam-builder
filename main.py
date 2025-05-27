@@ -26,7 +26,13 @@ client = OpenAI(api_key=api_key)
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173","https://workbooklab.com","http://workbooklab.com"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://workbooklab.com",
+        "http://workbooklab.com",
+        "https://exam-builder-waqa.onrender.com",
+        "http://exam-builder-waqa.onrender.com"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -486,3 +492,16 @@ For BULK requests (multiple questions), return a JSON ARRAY like this:
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.post("/generate")
+async def generate_exam(data: QuestionList):
+    questions = data.questions
+    exam_title = data.exam_title or "Professional Exam"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+
+    build_professional_workbook(questions, filename=tmp.name, exam_title=exam_title)
+    return FileResponse(
+        tmp.name, 
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+        filename=f"{exam_title.replace(' ', '_')}.xlsx"
+    )
