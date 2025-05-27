@@ -358,7 +358,7 @@ async def ai_generate_question(prompt: PromptRequest):
         if not prompt.prompt:
             raise HTTPException(status_code=400, detail="Prompt is required")
 
-        # Enhanced system prompt for complex question generation
+        # Enhanced system prompt for complex question generation - ASCII safe
         system_prompt = """You are an AI that generates sophisticated exam questions with data tables. 
 
 IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, no extra text.
@@ -369,7 +369,7 @@ For BULK requests (multiple questions), return a JSON ARRAY like this:
    "type": "data_table",
    "question": "Analyze the following GDP data:",
    "data_table": {
-     "headers": ["Year", "GDP (Trillion $)"],
+     "headers": ["Year", "GDP (Trillion USD)"],
      "rows": [
        [2020, 21.4],
        [2021, 23.3],
@@ -388,13 +388,26 @@ For BULK requests (multiple questions), return a JSON ARRAY like this:
         try:
             # Clean the input prompt first to remove problematic characters
             clean_prompt = prompt.prompt.encode('ascii', errors='ignore').decode('ascii')
+            
+            # Also clean the system prompt to be safe
+            clean_system_prompt = system_prompt.encode('ascii', errors='ignore').decode('ascii')
+            
             print(f"DEBUG: Original prompt length: {len(prompt.prompt)}")
             print(f"DEBUG: Cleaned prompt length: {len(clean_prompt)}")
+            print(f"DEBUG: System prompt length: {len(clean_system_prompt)}")
+            
+            # Check for any remaining non-ASCII characters
+            try:
+                clean_prompt.encode('ascii')
+                clean_system_prompt.encode('ascii')
+                print("DEBUG: All prompts are ASCII-safe")
+            except UnicodeEncodeError as e:
+                print(f"DEBUG: Still has non-ASCII chars: {e}")
             
             response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": clean_system_prompt},
                     {"role": "user", "content": clean_prompt}
                 ],
                 temperature=0.7,
