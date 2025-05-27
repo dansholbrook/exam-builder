@@ -377,43 +377,46 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, no extra text.
 
 For BULK requests (multiple questions), return a JSON ARRAY like this:
 [
+ {
+   "type": "data_table",
+   "question": "Analyze the following GDP data:",
+   "data_table": {
+     "headers": ["Year", "GDP (Trillion $)"],
+     "rows": [
+       [2020, 21.4],
+       [2021, 23.3],
+       [2022, 25.5]
+     ]
+   },
+   "subquestions": [
+     {"part": "A", "question": "What was the GDP growth from 2020 to 2021?", "answer": "8.9", "tolerance": 0.02}
+   ]
+  },
   {
-    "type": "data_table",
-    "question": "Analyze the following GDP data:",
+    "type": "data_table", 
+    "question": "Consider the inflation data:",
     "data_table": {
-      "headers": ["Year", "GDP (Trillion $)"],
-      "rows": [
-        [2020, 21.4],
-        [2021, 23.3],
-        [2022, 25.5]
-      ]
+      "headers": ["Year", "Inflation Rate (%)"],
+      "rows": [[2020, 1.2], [2021, 4.7], [2022, 8.0]]
     },
     "subquestions": [
-      {"part": "A", "question": "What was the GDP growth from 2020 to 2021?", "answer": "8.9", "tolerance": 0.02}
+      {"part": "A", "question": "What was the average inflation rate?", "answer": "4.6", "tolerance": 0.1}
     ]
-  }
+ }
 ]
 
-For SINGLE questions, return a JSON OBJECT like this:
-{
-  "type": "multiplechoice",
-  "question": "What is the capital of France?",
-  "answer": "Paris",
-  "options": ["London", "Paris", "Berlin", "Madrid"]
-}
-
-RULES:
-- Always include realistic data in tables
-- For numerical answers, include tolerance (0.01-0.1)
 - Make subquestions that require actual calculation
 - Return ONLY the JSON, nothing else"""
 
     try:
+        # Clean the input prompt first to remove problematic characters
+        clean_prompt = prompt.prompt.encode('ascii', errors='ignore').decode('ascii')
+        
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt.prompt}
+                {"role": "user", "content": clean_prompt}
             ],
             temperature=0.7,
             max_tokens=2000
@@ -427,17 +430,34 @@ RULES:
         # More aggressive cleaning of the response
         # Remove markdown code blocks
         if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw:
-            # Handle cases where it's just ``` without json
             parts = raw.split("```")
             if len(parts) >= 3:
                 raw = parts[1].strip()
+                if raw.startswith("json"):
+                    raw = raw[4:].strip()
+
+        # Remove any leading/trailing text that might not be JSON
+        # Find the first { or [ and last } or ]
+        start_idx = -1
+        end_idx = -1
+        
+        for i, char in enumerate(raw):
+            if char in ['{', '[']:
+                start_idx = i
+                break
+        
+        for i in range(len(raw) - 1, -1, -1):
+            if raw[i] in ['}', ']']:
+                end_idx = i + 1
+                break
+        
+        if start_idx != -1 and end_idx != -1:
+            raw = raw[start_idx:end_idx]
         
         # Try to parse the JSON
         parsed = json.loads(raw)
         return parsed
-        
+
     except json.JSONDecodeError as e:
         # If JSON parsing fails, provide more detailed error info
         raise HTTPException(
@@ -449,6 +469,7 @@ RULES:
             status_code=500,
             detail=f"Error generating question: {str(e)}"
         )
+
 
 if __name__ == "__main__":
     import uvicorn
